@@ -9,8 +9,6 @@ class CachedObjectDoesNotExist(Exception):
 
 class RelatedObjectsCache:
     def __enter__(self):
-        print("entering")
-
         self.cache = {}
 
         # store the original function so it can be restored on __exit__
@@ -28,28 +26,15 @@ class RelatedObjectsCache:
         # reset to the original function to restore original behavior
         ForwardManyToOneDescriptor.__get__ = self.original_get_function
 
-        print("exited")
-
-    def cache_results(self, results: Model | list[Model]):
-        try:
-            return self.cache_objects(results)
-        except TypeError:
-            return self.cache_object(results)
-
-    def cache_object(self, instance: Model):
+    def _cache_object(self, instance: Model):
         model_key = instance.__class__.__name__
 
         # get the model's cache by the instance's model name
         # if not already set, create an empty dict:
         model_cache: dict = self.cache.get(model_key, {})
 
-        # if the entry does not already exist, exit the function:
+        # if the entry already is cached, skip adding it again, to prevent infinite recursion:
         if instance.pk not in model_cache:
-
-            # override the getattr method, so that subsequent attempts to access it will
-            # check the cache if a query would be executed otherwise:
-            # instance.related_objects_cache = self
-            # instance.__getattribute__ = getattr_or_get_object_from_cache
 
             # add an entry for the instance to the model cache:
             model_cache[instance.pk] = instance
@@ -63,11 +48,29 @@ class RelatedObjectsCache:
                     if f.many_to_one or f.one_to_one:
                         try:
                             related_instance = getattr(instance, f.name, None)
-                        except QueriesDisabledError:
-                            continue
+                            if related_instance:
+                                self._cache_object(related_instance)
 
-                        if related_instance:
-                            self.cache_object(related_instance)
+                        except QueriesDisabledError:
+                            # look for it in the cache:
+                            try:
+                                related_model_cache = self.cache[
+                                    f.related_model.__name__
+                                ]
+                                cached_related_instances = related_model_cache.values()
+                                related_instance = next(
+                                    filter(
+                                        lambda x: getattr(x, f.field.attname)
+                                        == instance.pk,
+                                        cached_related_instances,
+                                    ),
+                                    None,
+                                )
+
+                                setattr(instance, f.related_name, related_instance)
+
+                            except:
+                                continue
 
                     else:
                         related_manager = getattr(instance, f.name)
@@ -77,7 +80,7 @@ class RelatedObjectsCache:
                         except QueriesDisabledError:
                             continue
 
-                        self.cache_objects(related_instances)
+                        self._cache_objects(related_instances)
 
         else:
             # reassign the cached instance to the parent:
@@ -85,11 +88,17 @@ class RelatedObjectsCache:
 
         return instance
 
-    def cache_objects(self, instances: list[Model]):
+    def _cache_objects(self, instances: list[Model]):
         for instance in instances:
-            self.cache_object(instance)
+            self._cache_object(instance)
 
         return instances
+
+    def cache_results(self, results: Model | list[Model]):
+        try:
+            return self._cache_objects(results)
+        except TypeError:
+            return self._cache_object(results)
 
     def get_object(self, model, pk):
         try:

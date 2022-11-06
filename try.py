@@ -1,20 +1,14 @@
-from django.http import HttpResponse
-from .models import Alpha, Bravo, Charlie, Delta, Echo, Foxtrot
 from zen_queries import (
     queries_disabled,
     queries_dangerously_enabled,
-    QueriesDisabledError,
 )
-from django.shortcuts import render
 
-
-def index(request):
-    return render(request, "core/index.html", {"alphas": Alpha.objects.all()})
+from cache_related.cache_related import RelatedObjectsCache
 
 
 @queries_disabled()
-def view_1(request, pk):
-    from cache_related.cache_related import RelatedObjectsCache
+def main():
+    from core.models import Alpha, Bravo, Charlie, Delta, Echo, Foxtrot
 
     with RelatedObjectsCache() as related_objects_cache:
         related_objects_cache: RelatedObjectsCache
@@ -23,11 +17,20 @@ def view_1(request, pk):
             a = (
                 Alpha.objects.select_related("bravo__charlie__delta__foxtrot")
                 .prefetch_related("bravo__charlie__delta__echoes")
-                .get(pk=pk)
+                .get(pk=1)
             )
 
         related_objects_cache.cache_results(a)
 
-        response = a.bravo.charlie.delta.alpha.bravo.value()
+        x = a.value()
 
-    return HttpResponse(response)
+    print(f"x: {x}")
+
+
+if __name__ == "__main__":
+    import os, django
+
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "project.settings")
+    django.setup()
+
+    main()
