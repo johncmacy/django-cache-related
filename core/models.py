@@ -6,7 +6,10 @@ class Alpha(models.Model):
 
     def value(self):
         self.bravo: Bravo
-        return self.number - 1 / self.bravo.value()
+        return self.number + self.bravo.value()
+
+    def __str__(self):
+        return f"{self.number}"
 
 
 class Bravo(models.Model):
@@ -20,7 +23,10 @@ class Bravo(models.Model):
 
     def value(self):
         self.charlie: Charlie
-        return self.number ** self.charlie.value()
+        return self.number + self.charlie.value()
+
+    def __str__(self):
+        return f"{self.number}"
 
 
 class Charlie(models.Model):
@@ -34,7 +40,10 @@ class Charlie(models.Model):
 
     def value(self):
         self.delta: Delta
-        return self.number / self.delta.value()
+        return self.number + self.delta.value()
+
+    def __str__(self):
+        return f"{self.number}"
 
 
 class Delta(models.Model):
@@ -55,7 +64,10 @@ class Delta(models.Model):
     def value(self):
         echoes: list[Echo] = list(self.echoes.all())
         self.foxtrot: Foxtrot
-        return self.number * sum(e.number for e in echoes) + self.foxtrot.number
+        return self.number + sum(e.number for e in echoes) + self.foxtrot.number
+
+    def __str__(self):
+        return f"{self.number}"
 
 
 class Echo(models.Model):
@@ -67,6 +79,9 @@ class Echo(models.Model):
 
     number = models.IntegerField()
 
+    def __str__(self):
+        return f"{self.number}"
+
 
 class Foxtrot(models.Model):
     delta: Delta = models.OneToOneField(
@@ -76,3 +91,6 @@ class Foxtrot(models.Model):
     )
 
     number = models.IntegerField()
+
+    def __str__(self):
+        return f"{self.number}"
