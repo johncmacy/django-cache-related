@@ -7,8 +7,13 @@ class CachedObjectDoesNotExist(Exception):
     pass
 
 
+class ObjectAlreadyCached(Exception):
+    pass
+
+
 class RelatedObjectsCache:
     def __enter__(self):
+        self.relationships = {}
         self.cache = {}
 
         # store the original function so it can be restored on __exit__
@@ -45,6 +50,35 @@ class RelatedObjectsCache:
             # then recursively cache each related object if it exists:
             for f in instance.__class__._meta.get_fields():
                 if f.is_relation:
+
+                    # register the relationship in self.relationships:
+                    if f.many_to_one or f.one_to_one:
+                        try:
+                            ff = f
+                            self.relationships[
+                                (
+                                    f"{ff.remote_field.model.__name__}.{ff.remote_field.get_accessor_name()}",
+                                    f"{ff.model.__name__}.{ff.attname}",
+                                )
+                            ] = f
+
+                        except AttributeError as e:
+                            ff = f.remote_field
+                            self.relationships[
+                                (
+                                    f"{ff.remote_field.model.__name__}.{ff.remote_field.get_accessor_name()}",
+                                    f"{ff.model.__name__}.{ff.attname}",
+                                )
+                            ] = f
+
+                    elif f.one_to_many or f.many_to_many:
+                        self.relationships[
+                            (
+                                f"{f.model.__name__}.{f.get_accessor_name()}",
+                                f"{f.remote_field.model.__name__}.{f.remote_field.attname}",
+                            )
+                        ] = f
+
                     if f.many_to_one or f.one_to_one:
                         try:
                             related_instance = getattr(instance, f.name, None)
@@ -78,26 +112,14 @@ class RelatedObjectsCache:
                         try:
                             related_instances = list(related_manager.all())
                         except QueriesDisabledError:
-                            # look for related instances in what has already been cached
-                            related_instances = [
-                                x
-                                for x in self.cache.get(
-                                    f.related_model.__name__, {}
-                                ).values()
-                                if getattr(x, f.field.attname, None) == instance.pk
-                            ]
-
-                            p = getattr(instance, "_prefetched_objects_cache", {})
-                            p[f.get_accessor_name()] = related_instances
-                            setattr(instance, "_prefetched_objects_cache", p)
-
                             continue
 
                         self._cache_objects(related_instances)
 
         else:
-            # reassign the cached instance to the parent:
-            pass
+            raise ObjectAlreadyCached(
+                f"'{model_key}' object with id '{instance.pk}' already cached"
+            )
 
         return instance
 
@@ -108,8 +130,42 @@ class RelatedObjectsCache:
         return instances
 
     def cache_results(self, *instances):
+
+        # first, add all the new instances to the cache
         for instance in instances:
             self._cache_object(instance)
+
+        # then, add all related objects to their parents' _prefetched_objects_cache
+        for key, field in self.relationships.items():
+            m = field.model
+            m_field = field.field_name
+            m_instances = self.cache[m.__name__].values()
+
+            rm = field.related_model
+            rm_field = field.remote_field.attname
+            rm_instances = self.cache[rm.__name__].values()
+
+            for x in m_instances:
+                matching = [
+                    y
+                    for y in rm_instances
+                    if getattr(y, rm_field, None) == getattr(x, m_field, None)
+                ]
+
+                if field.one_to_one or field.many_to_one:
+                    matching = next(iter(matching), None)
+
+                    setattr(
+                        x,
+                        field.name,
+                        matching,
+                    )
+
+                elif field.one_to_many or field.many_to_many:
+
+                    p = getattr(x, "_prefetched_objects_cache", {})
+                    p[field.get_accessor_name()] = matching
+                    setattr(x, "_prefetched_objects_cache", p)
 
     def get_object(self, model, pk):
         try:

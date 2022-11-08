@@ -33,7 +33,7 @@ def main():
 
         y = [x.value() for x in a]
 
-    print(f"x: {y}")
+    print(f"y: {y}")
 
 
 if __name__ == "__main__":
