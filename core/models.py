@@ -1,46 +1,47 @@
 from django.db import models
+from zen_queries import QueriesDisabledError
 
 
 class Alpha(models.Model):
     number = models.IntegerField()
 
     def value(self):
-        self.bravo: Bravo
-        return self.number + self.bravo.value()
+        return self.number + sum(b.value() for b in self.bravos.all())
 
     def __str__(self):
         return f"{self.number}"
 
 
 class Bravo(models.Model):
-    alpha: Alpha = models.OneToOneField(
+    alpha: Alpha = models.ForeignKey(
         Alpha,
         on_delete=models.CASCADE,
-        related_name="bravo",
+        related_name="bravos",
     )
 
     number = models.IntegerField()
 
     def value(self):
-        self.charlie: Charlie
-        return self.number + self.charlie.value()
+        return self.number + sum(c.value() for c in self.charlies.all())
 
     def __str__(self):
         return f"{self.number}"
 
 
 class Charlie(models.Model):
-    bravo: Bravo = models.OneToOneField(
+    bravo: Bravo = models.ForeignKey(
         Bravo,
         on_delete=models.CASCADE,
-        related_name="charlie",
+        related_name="charlies",
     )
 
     number = models.IntegerField()
 
     def value(self):
-        self.delta: Delta
-        return self.number + self.delta.value()
+        try:
+            return self.number + self.delta.value()
+        except QueriesDisabledError as e:
+            return 0
 
     def __str__(self):
         return f"{self.number}"
@@ -62,9 +63,9 @@ class Delta(models.Model):
     number = models.IntegerField()
 
     def value(self):
-        echoes: list[Echo] = list(self.echoes.all())
-        self.foxtrot: Foxtrot
-        return self.number + sum(e.number for e in echoes) + self.foxtrot.number
+        return (
+            self.number + sum(e.number for e in self.echoes.all()) + self.foxtrot.number
+        )
 
     def __str__(self):
         return f"{self.number}"

@@ -72,12 +72,25 @@ class RelatedObjectsCache:
                             except:
                                 continue
 
-                    else:
-                        related_manager = getattr(instance, f.name)
+                    elif f.one_to_many or f.many_to_many:
+                        related_manager = getattr(instance, f.get_accessor_name())
 
                         try:
                             related_instances = list(related_manager.all())
                         except QueriesDisabledError:
+                            # look for related instances in what has already been cached
+                            related_instances = [
+                                x
+                                for x in self.cache.get(
+                                    f.related_model.__name__, {}
+                                ).values()
+                                if getattr(x, f.field.attname, None) == instance.pk
+                            ]
+
+                            p = getattr(instance, "_prefetched_objects_cache", {})
+                            p[f.get_accessor_name()] = related_instances
+                            setattr(instance, "_prefetched_objects_cache", p)
+
                             continue
 
                         self._cache_objects(related_instances)
@@ -94,20 +107,15 @@ class RelatedObjectsCache:
 
         return instances
 
-    def cache_results(self, results: Model | list[Model]):
-        try:
-            return self._cache_objects(results)
-        except TypeError:
-            return self._cache_object(results)
+    def cache_results(self, *instances):
+        for instance in instances:
+            self._cache_object(instance)
 
     def get_object(self, model, pk):
         try:
             return self.cache[model][pk]
         except KeyError as e:
-            # raise CachedObjectDoesNotExist(
-            #     f"Object not found in cache for {model} by pk {pk}"
-            # )
-            pass
+            return None
 
 
 def getattr_or_get_object_from_cache(
